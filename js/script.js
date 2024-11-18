@@ -70,19 +70,7 @@ async function enableCam(event) {
     // localStorageに保存されたcameraIdがあれば、それを使用
     const cameraId = localStorage.getItem('cameraId');
 
-    // const constraints = {
-    //     video: {
-    //         deviceId: cameraId,
-    //         facingMode: 'environment',
-    //         aspectRatio: { ideal: 1.0 }, // アスペクト比の理想値
-    //         // width: { ideal: 400 }, // 幅を設定
-    //         // height: { ideal: 800 } // 高さを設定
-    //         advanced: [
-    //             { zoom: 0.5 },  // 広角のためにズームを指定
-    //             { focusMode: "continuous"}  // 焦点距離を指定
-    //           ]
-    //     }
-    // };
+    // カメラの制約を設定
     const constraints = {
         video: {
             deviceId: cameraId,
@@ -114,8 +102,10 @@ async function enableCam(event) {
 }
 
 
+let lastDetectionTime = 0;
+const detectionInterval = 200;  // 200msごとに検出
+let gestureDetected = false; // ジェスチャー検出フラグ
 
-let lastVideoTime = -1;
 async function predictWebcam() {
     // 初回の実行モードが"IMAGE"の場合、ビデオの実行モードで新しい分類器を作成
     if (runningMode === "IMAGE") {
@@ -125,19 +115,28 @@ async function predictWebcam() {
 
     let nowInMs = Date.now();
 
-     // detectForVideoを使ってオブジェクトを検出
-    if (video.currentTime !== lastVideoTime && !modelSwitching) {
-        lastVideoTime = video.currentTime;
+    // 一定間隔ごとにのみ検出を実行
+    if (nowInMs - lastDetectionTime >= detectionInterval && !modelSwitching) {
+        lastDetectionTime = nowInMs;
         const detections = await objectDetector.detectForVideo(video, nowInMs);
 
         // 検出結果を取得
         gotDetections(detections);
-        handleGestures();
-    }//ここにフラグたてて、モデル切り替え中は検出しないようにする
 
+        // ジェスチャー検出を別のフラグで処理
+        gestureDetected = true;
+    }
+
+    // ジェスチャーが検出された場合に処理を実行
+    if (gestureDetected) {
+        handleGestures();
+        gestureDetected = false; // ジェスチャー検出後にフラグをリセット
+    }
     // ブラウザが準備ができたら再度この関数を呼び出して予測を継続
     window.requestAnimationFrame(predictWebcam);
 }
+
+
 
 // 信頼度のしきい値を変更するイベントリスナー
 document.querySelector('#input_confidence_threshold').addEventListener('change', changedConfidenceThreshold);
@@ -227,27 +226,44 @@ function changedCamera() {
 
 
 
-
-// ジェスチャー検出結果を処理する関数
-let currentModel = './models/hanyou.tflite'; // 現在のモデルを保持
+let currentModel = './models/hanyou.tflite'; // 現在のモデル
+let lastSwitchTime = 0; // 最後にモデルを切り替えた時間
+const switchCooldown = 1500; // クールダウンタイム（ミリ秒）
 
 function handleGestures() {
     if (gestures_results) {
+        const now = Date.now();
+
+        // クールダウン中はモデルを切り替えない
+        if (now - lastSwitchTime < switchCooldown) {
+            return;
+        }
+
         for (let i = 0; i < gestures_results.gestures.length; i++) {
-            let name = gestures_results.gestures[i][0].categoryName;  // ジェスチャーのカテゴリ名 
+            let name = gestures_results.gestures[i][0].categoryName;
+
             if (name === "Pointing_Up" && currentModel !== './models/hanyou.tflite') {
                 console.log(`Gesture: ${name} detected. Switching model to hanyou.`);
-                switchModel('./models/hanyou.tflite');
+                currentModel = './models/hanyou.tflite';
+                switchModel(currentModel);
+                lastSwitchTime = now; // 時間を更新
             } else if (name === "Victory" && currentModel !== './models/mickey.tflite') {
                 console.log(`Gesture: ${name} detected. Switching model to mickey.`);
-                switchModel('./models/mickey.tflite');
+                currentModel = './models/mickey.tflite';
+                switchModel(currentModel);
+                lastSwitchTime = now;
             } else if (name === "THREE" && currentModel !== './models/tempereture.tflite') {
                 console.log(`Gesture: ${name} detected. Switching model to tempereture.`);
-                switchModel('./models/tempereture.tflite');
+                currentModel = './models/tempereture.tflite';
+                switchModel(currentModel);
+                lastSwitchTime = now;
             } else if (name === "FOUR" && currentModel !== './models/container3.tflite') {
                 console.log(`Gesture: ${name} detected. Switching model to container3.`);
-                switchModel('./models/container3.tflite');
+                currentModel = './models/container3.tflite';
+                switchModel(currentModel);
+                lastSwitchTime = now;
             }
         }
     }
 }
+
